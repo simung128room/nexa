@@ -1,0 +1,210 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-oswald: 'Oswald', 'Prompt', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-prompt: 'Prompt', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-inter: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-noto-thai: 'Noto Sans Thai', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+
+  * {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+  
+  html, body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Noto Sans Thai', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overscroll-behavior-y: none;
+    text-size-adjust: 100%;
+    -webkit-text-size-adjust: 100%;
+    background-color: #ffffff;
+    color: #09090b;
+  }
+
+  /* Oswald / Prompt: หัวข้อ / โลโก้ / ตัวเลขเด่น */
+  h1, h2, h3, h4, h5, h6, .font-heading, .font-display, .font-logo, .font-stat, .font-oswald {
+    font-family: 'Prompt', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  /* Inter: ปุ่ม / เมนู */
+  button, nav, .font-ui, .font-menu, .font-button {
+    font-family: 'Inter', 'Noto Sans Thai', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  /* Noto Sans Thai: เนื้อหา / ข้อความภาษาไทย */
+  p, span, div, input, textarea, select {
+    font-family: 'Noto Sans Thai', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  code, pre, kbd, samp {
+    font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+}
+
+/* Custom Typography utility classes */
+.font-oswald {
+  font-family: 'Oswald', 'Prompt', sans-serif;
+}
+
+.font-prompt {
+  font-family: 'Prompt', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.font-inter {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.font-thai {
+  font-family: 'Noto Sans Thai', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* Balanced Modern Components */
+.ox-capsule {
+  background: #ffffff;
+  border: 1px solid #e4e4e7;
+  border-radius: 9999px;
+}
+
+.ox-capsule:focus-within {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+
+.ox-user-bubble {
+  background: #f4f4f5;
+  border: 1px solid #e4e4e7;
+  color: #09090b;
+  border-radius: 1.25rem;
+}
+
+.glass-user-bubble {
+  background: #f4f4f5;
+  border: 1px solid #e4e4e7;
+  color: #09090b;
+  border-radius: 1.25rem;
+  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.05);
+}
+
+.ox-sidebar {
+  background: #ffffff;
+  border-right: 1px solid #e4e4e7;
+}
+
+.ox-modal {
+  background: #ffffff;
+  border: 1px solid #e4e4e7;
+  border-radius: 1.5rem;
+}
+
+/* Sharp Technical Panels & Ambient Physics */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid #e4e4e7;
+  border-radius: 1.25rem;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
+}
+
+.glass-capsule {
+  background: #f4f4f5;
+  border: 1px solid #e4e4e7;
+  border-radius: 9999px;
+  transition: all 0.2s ease;
+}
+
+.glass-capsule:focus-within {
+  background: #ffffff;
+  border-color: #6366f1;
+}
+
+.glass-card-interactive {
+  background: #ffffff;
+  border: 1px solid #e4e4e7;
+  border-radius: 1rem;
+  transition: all 0.2s ease;
+}
+
+.glass-card-interactive:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+.glass-pill {
+  background: #f4f4f5;
+  border: 1px solid #e4e4e7;
+  border-radius: 9999px;
+  transition: all 0.2s ease;
+}
+
+.glass-pill:hover {
+  background: #e4e4e7;
+  border-color: #d4d4d8;
+}
+
+.glass-code-block {
+  background: #0d0d12;
+  border: 1px solid #27272a;
+  border-radius: 1rem;
+}
+
+/* Smooth Hardware-Accelerated Animations */
+.will-change-transform {
+  will-change: transform;
+}
+
+/* Safe area padding utilities for iOS / Android */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* Custom Sleek Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+/* Hide scrollbar utility */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Code Syntax & Prose styling */
+.prose pre {
+  margin: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+}
+
+.prose code {
+  color: inherit;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+
