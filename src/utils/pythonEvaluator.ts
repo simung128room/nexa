@@ -210,7 +210,7 @@ export function transpilePythonToJs(pythonCode: string): string {
 
 export function executePythonInSandbox(pythonCode: string): Promise<ExecutionResult> {
   // Pre-execution security screening for system and reflection abuse
-  // Detect both direct commands and string concatenation evasions (e.g. 'ev' + 'al', '__im' + 'port__', 'op' + 'en')
+  // Detect direct commands, string concatenation evasions, and unicode/hex escapes (e.g. 'ev' + 'al', '__im' + 'port__', 'op' + 'en', 'ev\x61l')
   const DANGEROUS_PYTHON_PATTERNS = [
     /__import__/,
     /\b(eval|exec|open)\s*\(/,
@@ -227,11 +227,19 @@ export function executePythonInSandbox(pythonCode: string): Promise<ExecutionRes
     /\bcompile\s*\(/,
   ];
 
+  // Decode hex and unicode escapes for screening
+  let decodedPython = pythonCode;
+  try {
+    decodedPython = pythonCode
+      .replace(/\\x([0-9a-fA-F]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+      .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+  } catch (e) {}
+
   // Check if string concatenation is being used to bypass pattern matching
-  const deconcatenated = pythonCode.replace(/['"]\s*\+\s*['"]/g, "");
+  const deconcatenated = decodedPython.replace(/['"]\s*\+\s*['"]/g, "");
 
   for (const pattern of DANGEROUS_PYTHON_PATTERNS) {
-    if (pattern.test(pythonCode) || pattern.test(deconcatenated)) {
+    if (pattern.test(pythonCode) || pattern.test(decodedPython) || pattern.test(deconcatenated)) {
       return Promise.resolve({
         success: false,
         output: "",

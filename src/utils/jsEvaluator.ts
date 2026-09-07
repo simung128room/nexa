@@ -50,7 +50,8 @@ export function executeJsInBrowserSandbox(code: string): Promise<ExecutionResult
           'caches',
           'cookieStore',
           'Proxy',
-          'Reflect'
+          'Reflect',
+          'location'
         ];
 
         for (const key of dangerousGlobals) {
@@ -68,10 +69,15 @@ export function executeJsInBrowserSandbox(code: string): Promise<ExecutionResult
           } catch (e) {}
         }
 
-        // Neutralize eval permanently
+        // Neutralize eval and Object.setPrototypeOf permanently
         try {
           Object.defineProperty(self, 'eval', { value: undefined, writable: false, configurable: false });
           Object.defineProperty(globalThis, 'eval', { value: undefined, writable: false, configurable: false });
+          Object.defineProperty(Object, 'setPrototypeOf', {
+            value: function() { throw new Error("Security Policy Violation: setPrototypeOf is disabled in sandbox."); },
+            writable: false,
+            configurable: false,
+          });
         } catch (e) {}
 
         if (self.navigator) {
@@ -159,17 +165,24 @@ export function executeJsInBrowserSandbox(code: string): Promise<ExecutionResult
           try {
             const rawCode = String(e.data || "");
 
-            // 3. Heuristic Pre-Check (Detect dangerous keywords and string concatenation tricks)
+            // 3. Heuristic Pre-Check (Detect dangerous keywords, string concatenation, and unicode/hex escapes)
+            // Decode common hex (\x61) and unicode (\u0061) representations to detect evasion attempts
+            let decodedCode = rawCode;
+            try {
+              decodedCode = rawCode
+                .replace(/\\x([0-9a-fA-F]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+                .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+            } catch (e) {}
+
             // Detect string concatenation trying to assemble forbidden terms
-            const stringConcatForbidden = /['"][a-zA-Z0-9_]*['"]\s*\+\s*['"][a-zA-Z0-9_]*['"]/i.test(rawCode);
-            if (stringConcatForbidden) {
-              const simplified = rawCode.replace(/['"]\s*\+\s*['"]/g, "");
-              if (/(?:__proto__|importScripts|\beval\b|constructor|Function|prototype|indexedDB|localStorage)/i.test(simplified)) {
-                throw new Error("Security Policy Violation: ตรวจพบความพยายามหลบเลี่ยง Sandbox ผ่าน String Concatenation");
+            const simplified = decodedCode.replace(/['"]\s*\+\s*['"]/g, "");
+            if (/(?:__proto__|importScripts|\beval\b|constructor|Function|prototype|indexedDB|localStorage|location|defineProperty|setPrototypeOf)/i.test(simplified)) {
+              if (/(?:__proto__|importScripts|\beval\b|constructor|Function|prototype|indexedDB|localStorage|location|defineProperty|setPrototypeOf)/i.test(simplified) && simplified !== decodedCode) {
+                throw new Error("Security Policy Violation: ตรวจพบความพยายามหลบเลี่ยง Sandbox ผ่าน String Concatenation หรือ Code Obfuscation");
               }
             }
 
-            if (/(?:__proto__|importScripts|\beval\s*\(|debugger|\bconstructor\b|getPrototypeOf|Object\.defineProperty)/i.test(rawCode)) {
+            if (/(?:__proto__|importScripts|\beval\s*\(|debugger|\bconstructor\b|getPrototypeOf|Object\.defineProperty|setPrototypeOf)/i.test(decodedCode)) {
               throw new Error("Security Policy Violation: ตรวจพบคำสั่งหรือคีย์เวิร์ดที่มีความเสี่ยงสูง (Sandbox Security Policy)");
             }
 

@@ -169,7 +169,13 @@ function canCreateNewSession(clientIp: string): { allowed: boolean; status?: num
 // Security Headers with Helmet and Content Security Policy
 app.use(
   helmet({
-    frameguard: false, // Allows embedding by Google AI Studio preview
+    frameguard: false, // Allows embedding by Google AI Studio preview iframe
+    xContentTypeOptions: true, // X-Content-Type-Options: nosniff
+    hsts: {
+      maxAge: 31536000,
+      includeSubDomains: true,
+      preload: true,
+    },
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
@@ -222,8 +228,12 @@ app.use(
 app.use(
   cors({
     origin: (origin, callback) => {
+      // In production, require valid browser origin that matches whitelist
       if (!origin) {
-        return callback(null, true);
+        // Only allow server-to-server or non-browser origin in non-production,
+        // or ensure it cannot access authenticated session routes
+        const isDev = process.env.NODE_ENV !== "production";
+        return callback(null, isDev);
       }
 
       if (isOriginAllowed(origin)) {
@@ -454,7 +464,7 @@ app.post("/api/init-session", initSessionLimiter, (req, res) => {
 });
 
 // Cloudflare Turnstile Verification Route (Bot Protection & Human Verification)
-app.post("/api/verify-turnstile", express.json(), async (req, res) => {
+app.post("/api/verify-turnstile", express.json({ limit: "32kb" }), generalApiLimiter, async (req, res) => {
   if (!validateCsrf(req)) {
     return res.status(403).json({ success: false, error: "Forbidden: Cross-site verification rejected by anti-CSRF guard" });
   }

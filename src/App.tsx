@@ -603,30 +603,46 @@ export default function App() {
         const parsed = JSON.parse(raw);
         if (parsed && Array.isArray(parsed.sessions) && parsed.sessions.length > 0) {
           // Validate and sanitize each session structure
+          const sanitizeString = (val: any, maxLen: number, fallback = ""): string => {
+            if (typeof val !== "string") return fallback;
+            return val.slice(0, maxLen);
+          };
+
           const validatedSessions: ChatSession[] = parsed.sessions
             .filter((s: any) => s && typeof s.id === "string")
             .map((s: any) => ({
-              id: String(s.id).slice(0, 100),
-              title: typeof s.title === "string" ? s.title.slice(0, 150) : "บทสนทนา",
+              id: sanitizeString(s.id, 100, `sess-${Date.now()}`),
+              title: sanitizeString(s.title, 150, "บทสนทนา"),
               messages: Array.isArray(s.messages)
                 ? s.messages
                     .filter((m: any) => m && (m.role === "user" || m.role === "assistant"))
                     .map((m: any) => ({
-                      id: String(m.id || `msg-${Date.now()}`),
+                      id: sanitizeString(m.id, 100, `msg-${Date.now()}`),
                       role: m.role,
-                      content: typeof m.content === "string" ? m.content : "",
-                      timestamp: typeof m.timestamp === "number" ? m.timestamp : Date.now(),
-                      model: typeof m.model === "string" ? m.model : undefined,
-                      attachments: Array.isArray(m.attachments) ? m.attachments : undefined,
+                      content: sanitizeString(m.content, 50000, ""),
+                      timestamp: typeof m.timestamp === "number" && !isNaN(m.timestamp) ? m.timestamp : Date.now(),
+                      model: typeof m.model === "string" ? sanitizeString(m.model, 50) : undefined,
+                      attachments: Array.isArray(m.attachments)
+                        ? m.attachments
+                            .filter((a: any) => a && typeof a.name === "string")
+                            .map((a: any) => ({
+                              id: sanitizeString(a.id, 100, `att-${Date.now()}`),
+                              name: sanitizeString(a.name, 100, "attachment"),
+                              size: typeof a.size === "number" ? a.size : 0,
+                              type: sanitizeString(a.type, 50, "text/plain"),
+                              content: typeof a.content === "string" ? a.content.slice(0, 100000) : undefined,
+                              dataUrl: typeof a.dataUrl === "string" && a.dataUrl.startsWith("data:") ? a.dataUrl.slice(0, 2000000) : undefined,
+                            }))
+                        : undefined,
                     }))
                 : [],
               updatedAt: typeof s.updatedAt === "number" ? s.updatedAt : Date.now(),
-              model: typeof s.model === "string" ? s.model : "NEXA",
+              model: typeof s.model === "string" ? sanitizeString(s.model, 50, "NEXA") : "NEXA",
               isPinned: Boolean(s.isPinned),
-              temperature: typeof s.temperature === "number" ? s.temperature : 0.7,
-              customSystemPrompt: typeof s.customSystemPrompt === "string" ? s.customSystemPrompt : undefined,
-              scratchpadCode: typeof s.scratchpadCode === "string" ? s.scratchpadCode : undefined,
-              scratchpadLang: typeof s.scratchpadLang === "string" ? s.scratchpadLang : undefined,
+              temperature: typeof s.temperature === "number" && !isNaN(s.temperature) ? Math.max(0, Math.min(1, s.temperature)) : 0.7,
+              customSystemPrompt: typeof s.customSystemPrompt === "string" ? sanitizeString(s.customSystemPrompt, 2000) : undefined,
+              scratchpadCode: typeof s.scratchpadCode === "string" ? sanitizeString(s.scratchpadCode, 50000) : undefined,
+              scratchpadLang: typeof s.scratchpadLang === "string" ? sanitizeString(s.scratchpadLang, 50) : undefined,
             }));
 
           if (validatedSessions.length > 0) {
