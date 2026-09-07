@@ -46,7 +46,11 @@ export function executeJsInBrowserSandbox(code: string): Promise<ExecutionResult
           'openDatabase',
           'BroadcastChannel',
           'SharedWorker',
-          'Worker'
+          'Worker',
+          'caches',
+          'cookieStore',
+          'Proxy',
+          'Reflect'
         ];
 
         for (const key of dangerousGlobals) {
@@ -64,6 +68,12 @@ export function executeJsInBrowserSandbox(code: string): Promise<ExecutionResult
           } catch (e) {}
         }
 
+        // Neutralize eval permanently
+        try {
+          Object.defineProperty(self, 'eval', { value: undefined, writable: false, configurable: false });
+          Object.defineProperty(globalThis, 'eval', { value: undefined, writable: false, configurable: false });
+        } catch (e) {}
+
         if (self.navigator) {
           try {
             Object.defineProperty(self.navigator, 'sendBeacon', {
@@ -75,31 +85,66 @@ export function executeJsInBrowserSandbox(code: string): Promise<ExecutionResult
         }
 
         // 2. Preserve native Function builder for runner, then permanently neutralize
-        // constructor-chaining escapes and freeze prototypes (Structural Security Boundary)
+        // constructor-chaining escapes on Function, AsyncFunction, GeneratorFunction, and AsyncGeneratorFunction
         const SafeFunction = Function;
         try {
           const blockedConstructor = function() {
             throw new Error("Security Policy Violation: Dynamic code evaluation via Function constructor is permanently disabled in sandbox.");
           };
-          Object.defineProperty(Function.prototype, 'constructor', {
-            value: blockedConstructor,
-            writable: false,
-            configurable: false,
-          });
-          Object.defineProperty(Function, 'constructor', {
-            value: blockedConstructor,
-            writable: false,
-            configurable: false,
-          });
+
+          const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+          const GeneratorFunction = Object.getPrototypeOf(function*(){}).constructor;
+          const AsyncGeneratorFunction = Object.getPrototypeOf(async function*(){}).constructor;
+
+          const fnConstructors = [Function, AsyncFunction, GeneratorFunction, AsyncGeneratorFunction];
+          for (const fn of fnConstructors) {
+            try {
+              Object.defineProperty(fn.prototype, 'constructor', {
+                value: blockedConstructor,
+                writable: false,
+                configurable: false,
+              });
+              Object.defineProperty(fn, 'constructor', {
+                value: blockedConstructor,
+                writable: false,
+                configurable: false,
+              });
+            } catch (e) {}
+          }
+
           Object.defineProperty(Object.prototype, '__proto__', {
             get: function() { return null; },
             set: function() { return false; },
             configurable: false,
           });
-          Object.freeze(Object.prototype);
-          Object.freeze(Array.prototype);
-          Object.freeze(Function.prototype);
-          Object.freeze(String.prototype);
+
+          // Exhaustively freeze all standard prototypes to prevent Prototype Pollution exploits
+          const prototypesToFreeze = [
+            Object.prototype,
+            Array.prototype,
+            Function.prototype,
+            String.prototype,
+            Number.prototype,
+            Boolean.prototype,
+            Date.prototype,
+            RegExp.prototype,
+            Promise.prototype,
+            Map.prototype,
+            Set.prototype,
+            WeakMap.prototype,
+            WeakSet.prototype,
+            Error.prototype,
+            Symbol.prototype,
+            AsyncFunction.prototype,
+            GeneratorFunction.prototype,
+            AsyncGeneratorFunction.prototype,
+          ];
+
+          for (const proto of prototypesToFreeze) {
+            try {
+              Object.freeze(proto);
+            } catch (e) {}
+          }
         } catch (e) {}
 
         self.onmessage = function(e) {
@@ -114,10 +159,17 @@ export function executeJsInBrowserSandbox(code: string): Promise<ExecutionResult
           try {
             const rawCode = String(e.data || "");
 
-            // 3. Heuristic Pre-Check (Early warning for dangerous keywords;
-            // actual security isolation is enforced by the Web Worker thread,
-            // prototype freezing, constructor neutralization, and capability stripping)
-            if (/(?:__proto__|importScripts|\beval\s*\(|debugger|\bconstructor\b)/i.test(rawCode)) {
+            // 3. Heuristic Pre-Check (Detect dangerous keywords and string concatenation tricks)
+            // Detect string concatenation trying to assemble forbidden terms
+            const stringConcatForbidden = /['"][a-zA-Z0-9_]*['"]\s*\+\s*['"][a-zA-Z0-9_]*['"]/i.test(rawCode);
+            if (stringConcatForbidden) {
+              const simplified = rawCode.replace(/['"]\s*\+\s*['"]/g, "");
+              if (/(?:__proto__|importScripts|\beval\b|constructor|Function|prototype|indexedDB|localStorage)/i.test(simplified)) {
+                throw new Error("Security Policy Violation: ตรวจพบความพยายามหลบเลี่ยง Sandbox ผ่าน String Concatenation");
+              }
+            }
+
+            if (/(?:__proto__|importScripts|\beval\s*\(|debugger|\bconstructor\b|getPrototypeOf|Object\.defineProperty)/i.test(rawCode)) {
               throw new Error("Security Policy Violation: ตรวจพบคำสั่งหรือคีย์เวิร์ดที่มีความเสี่ยงสูง (Sandbox Security Policy)");
             }
 

@@ -28,9 +28,9 @@ export const ArtifactPreviewModal: React.FC<ArtifactPreviewModalProps> = ({
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' data: blob:; connect-src 'none';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https://images.unsplash.com https://*.googleusercontent.com; media-src 'self' data: blob:; connect-src 'none';">
   <script>
-    // Defensive sandbox shield: isolate parent window and neutralize blocking dialogs
+    // Defensive sandbox shield: isolate parent window, neutralize blocking dialogs and storage
     try {
       Object.defineProperty(window, 'parent', { get: () => null });
       Object.defineProperty(window, 'top', { get: () => null });
@@ -39,6 +39,11 @@ export const ArtifactPreviewModal: React.FC<ArtifactPreviewModalProps> = ({
       window.confirm = function() { return false; };
       window.prompt = function() { return null; };
       window.open = function() { return null; };
+      delete window.indexedDB;
+      delete window.localStorage;
+      delete window.sessionStorage;
+      delete window.Worker;
+      delete window.SharedWorker;
     } catch (e) {}
   </script>
   <script src="https://cdn.tailwindcss.com"></script>

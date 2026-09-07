@@ -56,12 +56,23 @@ export function transpilePythonToJs(pythonCode: string): string {
     const True = true;
     const False = false;
     const None = null;
+    const getattr = () => { throw new Error("Security Policy Violation: getattr reflection is permanently disabled in sandbox."); };
+    const setattr = () => { throw new Error("Security Policy Violation: setattr is permanently disabled in sandbox."); };
+    const delattr = () => { throw new Error("Security Policy Violation: delattr is permanently disabled in sandbox."); };
+    const hasattr = () => false;
+    const open = () => { throw new Error("Security Policy Violation: File system access is disabled in browser sandbox."); };
+    const __import__ = () => { throw new Error("Security Policy Violation: Module import is disabled in sandbox."); };
+    const globals = () => ({});
+    const locals = () => ({});
+    const vars = () => ({});
+    const compile = () => { throw new Error("Security Policy Violation: Dynamic compilation is disabled in sandbox."); };
   `;
 
   // Track declared variables to avoid undeclared variable ReferenceErrors
   const declaredVars = new Set<string>([
     "print", "len", "range", "sum", "max", "min", "abs", "round",
-    "str", "int", "float", "bool", "True", "False", "None"
+    "str", "int", "float", "bool", "True", "False", "None",
+    "getattr", "setattr", "delattr", "hasattr", "open", "__import__", "globals", "locals", "vars", "compile"
   ]);
 
   for (let i = 0; i < lines.length; i++) {
@@ -199,8 +210,7 @@ export function transpilePythonToJs(pythonCode: string): string {
 
 export function executePythonInSandbox(pythonCode: string): Promise<ExecutionResult> {
   // Pre-execution security screening for system and reflection abuse
-  // Instead of matching broad strings which can be bypassed via string concatenation,
-  // we check for actual import statements of dangerous modules.
+  // Detect both direct commands and string concatenation evasions (e.g. 'ev' + 'al', '__im' + 'port__', 'op' + 'en')
   const DANGEROUS_PYTHON_PATTERNS = [
     /__import__/,
     /\b(eval|exec|open)\s*\(/,
@@ -208,14 +218,24 @@ export function executePythonInSandbox(pythonCode: string): Promise<ExecutionRes
     /\b__builtins__\b/,
     /\b__subclasses__\b/,
     /\b__class__\b/,
+    /\b__bases__\b/,
+    /\b__mro__\b/,
+    /\b__dict__\b/,
+    /\bgetattr\s*\(/,
+    /\bsetattr\s*\(/,
+    /\bdelattr\s*\(/,
+    /\bcompile\s*\(/,
   ];
 
+  // Check if string concatenation is being used to bypass pattern matching
+  const deconcatenated = pythonCode.replace(/['"]\s*\+\s*['"]/g, "");
+
   for (const pattern of DANGEROUS_PYTHON_PATTERNS) {
-    if (pattern.test(pythonCode)) {
+    if (pattern.test(pythonCode) || pattern.test(deconcatenated)) {
       return Promise.resolve({
         success: false,
         output: "",
-        error: "Security Policy Violation: คำสั่งที่พยายามเข้าถึง OS, System Modules หรือ Dynamic Eval ถูกบล็อกใน Client-Side Sandbox",
+        error: "Security Policy Violation: คำสั่งที่พยายามเข้าถึง OS, System Modules, Reflection (getattr) หรือ Dynamic Eval ถูกบล็อกใน Client-Side Sandbox",
         executionTimeMs: "0.00",
       });
     }

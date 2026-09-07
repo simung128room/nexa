@@ -184,18 +184,36 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       setFileErrorWarning(`จำกัดแนบไฟล์สูงสุด 5 ไฟล์ (ข้าม ${fileArray.length - remainingSlots} ไฟล์ที่เกิน)`);
     }
 
-    const MAX_FILE_BYTES = 8 * 1024 * 1024; // 8MB per file
+    const MAX_FILE_BYTES = 3 * 1024 * 1024; // 3MB per file
+    const MAX_TOTAL_ATTACHMENT_BYTES = 6 * 1024 * 1024; // 6MB total cumulative limit across all attachments
+    const FORBIDDEN_EXTENSIONS = new Set(["exe", "dll", "bin", "iso", "dmg", "com", "vbs", "msi", "scr", "pif"]);
+
+    let currentTotalBytes = attachments.reduce((acc, a) => acc + (a.size || 0), 0);
 
     filesToProcess.forEach((file) => {
       const rawExt = file.name.split(".").pop() || "";
       const ext = rawExt.toLowerCase().replace(/[^a-z0-9]/g, "");
       const mime = (file.type || "").toLowerCase();
 
-      // Validate file size (up to 8MB)
-      if (file.size > MAX_FILE_BYTES) {
-        setFileErrorWarning(`ไฟล์ "${file.name}" มีขนาดเกิน 8 MB (${(file.size / (1024 * 1024)).toFixed(1)} MB)`);
+      // Block executable / dangerous binary extensions
+      if (FORBIDDEN_EXTENSIONS.has(ext)) {
+        setFileErrorWarning(`ไฟล์ "${file.name}" เป็นประเภทที่ไม่อนุญาตเพื่อความปลอดภัย`);
         return;
       }
+
+      // Validate single file size (up to 3MB)
+      if (file.size > MAX_FILE_BYTES) {
+        setFileErrorWarning(`ไฟล์ "${file.name}" มีขนาดเกิน 3 MB (${(file.size / (1024 * 1024)).toFixed(1)} MB)`);
+        return;
+      }
+
+      // Validate cumulative attachment total size
+      if (currentTotalBytes + file.size > MAX_TOTAL_ATTACHMENT_BYTES) {
+        setFileErrorWarning(`ขนาดรวมของไฟล์แนบทั้งหมดต้องไม่เกิน 6 MB (ข้ามไฟล์ "${file.name}")`);
+        return;
+      }
+
+      currentTotalBytes += file.size;
 
       const tempId = `file-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
       const safeName = file.name.replace(/[^\w\s.-]/g, "_").slice(0, 100);
