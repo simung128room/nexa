@@ -59,7 +59,7 @@ export function executeJsInBrowserSandbox(code: string): Promise<ExecutionResult
       return resolve({
         success: false,
         output: "",
-        error: `TypeScript Compilation Error: ${err.message || String(err)}`,
+        error: "TypeScript Compilation Error: โค้ดมีข้อผิดพลาดทางไวยากรณ์ (Syntax Error)",
         executionTimeMs: (performance.now() - start).toFixed(2),
       });
     }

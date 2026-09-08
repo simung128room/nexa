@@ -14,7 +14,7 @@ import crypto from "crypto";
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 interface SessionRecord {
   ip: string;
@@ -225,7 +225,6 @@ app.use(
           "'self'",
           "'unsafe-inline'",
           "'unsafe-eval'",
-          "blob:",
           "https://cdn.tailwindcss.com",
           "https://challenges.cloudflare.com",
         ],
@@ -1743,7 +1742,7 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
+    app.use(express.static(distPath, { dotfiles: "deny", index: false }));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });

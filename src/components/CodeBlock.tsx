@@ -165,6 +165,7 @@ const getExtension = (lang: string): string => {
 
 const highlightCodeLine = (line: string): React.ReactNode => {
   if (!line) return "\n";
+  if (line.length > 5000) return <span className="text-[#f4f4f5]">{line}</span>; // Prevent ReDoS on extremely long lines
 
   if (line.trim().startsWith("//") || line.trim().startsWith("#") || line.trim().startsWith("/*") || line.trim().startsWith("*")) {
     return <span className="text-zinc-500 italic">{line}</span>;

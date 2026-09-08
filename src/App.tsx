@@ -600,7 +600,12 @@ export default function App() {
           return;
         }
 
-        const parsed = JSON.parse(raw);
+        const parsed = JSON.parse(raw, (key, value) => {
+          if (key === "__proto__" || key === "constructor" || key === "prototype") {
+            return undefined;
+          }
+          return value;
+        });
         if (parsed && Array.isArray(parsed.sessions) && parsed.sessions.length > 0) {
           // Validate and sanitize each session structure
           const sanitizeString = (val: any, maxLen: number, fallback = ""): string => {
@@ -631,7 +636,7 @@ export default function App() {
                               size: typeof a.size === "number" ? a.size : 0,
                               type: sanitizeString(a.type, 50, "text/plain"),
                               content: typeof a.content === "string" ? a.content.slice(0, 100000) : undefined,
-                              dataUrl: typeof a.dataUrl === "string" && a.dataUrl.startsWith("data:") ? a.dataUrl.slice(0, 2000000) : undefined,
+                              dataUrl: typeof a.dataUrl === "string" && /^data:image\/(png|jpeg|jpg|webp|gif);base64,/i.test(a.dataUrl) ? a.dataUrl.slice(0, 2000000) : undefined,
                             }))
                         : undefined,
                     }))

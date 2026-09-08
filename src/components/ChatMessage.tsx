@@ -315,7 +315,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
                       );
                     }
                     // Validate href against javascript:, data:, and malicious protocol handlers
-                    const isSafeLink = typeof href === "string" && /^(https?:\/\/|mailto:|\/|#)/i.test(href);
+                    const isSafeLink = typeof href === "string" && /^(https?:\/\/|mailto:|\/|#)/i.test(href) && !href.toLowerCase().startsWith("data:");
                     if (!isSafeLink) {
                       return <span className="text-zinc-500 font-mono text-sm">{children}</span>;
                     }
@@ -331,7 +331,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
                     );
                   },
                   img({ src, alt }: any) {
-                    const isSafeImg = typeof src === "string" && /^(https?:\/\/|data:image\/(png|jpeg|jpg|webp|gif);base64,)/i.test(src);
+                    const isSafeImg = typeof src === "string" && /^(https?:\/\/|data:image\/(png|jpeg|jpg|webp|gif);base64,)/i.test(src) && !src.toLowerCase().startsWith("data:image/svg");
                     if (!isSafeImg) return null;
                     return (
                       <img

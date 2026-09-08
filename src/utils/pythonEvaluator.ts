@@ -8,6 +8,9 @@ import { ExecutionResult } from "../types";
  */
 
 export function transpilePythonToJs(pythonCode: string): string {
+  if (pythonCode.length > 50000) {
+    throw new Error("Python code is too long to safely transpile.");
+  }
   const lines = pythonCode.split("\n");
   const jsLines: string[] = [];
   const indentStack: number[] = [0];
