@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { ChatSession, Message, ZenThemeId, FileAttachment, ArtifactItem } from "./types";
+import { JOM_MODELS } from "./data/presets";
 import { ZEN_THEMES } from "./data/presets";
 import { Sidebar } from "./components/Sidebar";
 import { ChatMessage, extractThinkingMainAndQuestion } from "./components/ChatMessage";
@@ -300,18 +301,35 @@ export default function App() {
         let errMessage = `Server status ${response.status}`;
         let errCode = "";
         try {
-          const errData = await response.json();
-          if (errData?.error) {
-            errMessage = errData.error;
-          }
-          if (errData?.code) {
-            errCode = errData.code;
+          const text = await response.text();
+          try {
+            const errData = JSON.parse(text);
+            if (errData?.error) {
+              errMessage = errData.error;
+            }
+            if (errData?.code) {
+              errCode = errData.code;
+            }
+          } catch {
+            errMessage = `Server status ${response.status} - ${text.slice(0, 100).replace(/\n/g, ' ')}`;
           }
         } catch {
           // ignore parse error
         }
-        if (errCode === "TURNSTILE_REQUIRED" || response.status === 403) {
+        if (errCode === "TURNSTILE_REQUIRED" || response.status === 401) {
           setIsTurnstileModalOpen(true);
+          if (errCode === "TURNSTILE_REQUIRED") {
+            // Restore assistant message state and abort
+            setSessions((prev) =>
+              prev.map((s) =>
+                s.id === activeSession.id
+                  ? { ...s, messages: s.messages.slice(0, -1) }
+                  : s
+              )
+            );
+            setIsStreaming(false);
+            return;
+          }
         }
         throw new Error(errMessage);
       }
@@ -719,14 +737,42 @@ export default function App() {
           </div>
         )}
 
-        {/* Top Header Controls: Sidebar (Frameless Animated Hamburger) */}
-        <div className="absolute top-3.5 left-3.5 z-30 flex items-center pointer-events-none">
+        {/* Top Header Controls: Sidebar & Model Selector */}
+        <div className="absolute top-3.5 left-3.5 z-30 flex items-center pointer-events-none gap-2">
           <AnimatedMenuButton
             isOpen={isSidebarOpen}
             onClick={() => setIsSidebarOpen((prev) => !prev)}
             theme={currentTheme}
             className="pointer-events-auto"
           />
+          
+          <div className="pointer-events-auto relative group">
+            <select
+              className={`appearance-none bg-transparent outline-none cursor-pointer font-thai text-sm font-medium pr-7 py-1 pl-3 rounded-xl transition-all ${
+                currentTheme.isDark 
+                  ? "text-zinc-300 hover:bg-white/10 hover:text-white" 
+                  : "text-zinc-600 hover:bg-zinc-200/60 hover:text-zinc-900"
+              }`}
+              value={activeSession.model || "NEXA"}
+              onChange={(e) => {
+                zenAudio.playSoftClick();
+                setSessions((prev) =>
+                  prev.map((s) => (s.id === activeSession.id ? { ...s, model: e.target.value } : s))
+                );
+              }}
+            >
+              {JOM_MODELS.map((m) => (
+                <option key={m.id} value={m.id} className={currentTheme.isDark ? "bg-[#11161d] text-white" : "bg-white text-zinc-900"}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+            <div className={`absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none transition-colors ${
+              currentTheme.isDark ? "text-zinc-500 group-hover:text-zinc-300" : "text-zinc-400 group-hover:text-zinc-600"
+            }`}>
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" /></svg>
+            </div>
+          </div>
         </div>
 
         {/* Content View: Hero / Active Chat */}

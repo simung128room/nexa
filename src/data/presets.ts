@@ -2,6 +2,17 @@ import { JomModel, PromptPreset, ZenThemeConfig, ZenThemeId } from "../types";
 
 export const NEXA_MODELS: JomModel[] = [
   {
+    id: "NEXA-FLASH",
+    name: "NEXA Flash",
+    pillLabel: "NEXA Flash",
+    engine: "NEXA Flash Fast Engine",
+    title: "NEXA Flash",
+    subtitle: "รวดเร็วและตอบสนองทันที เหมาะสำหรับคำถามทั่วไป",
+    badge: "Fast AI",
+    tagline: "รวดเร็ว → แม่นยำ → ทันใจ",
+    speed: "สายฟ้า",
+  },
+  {
     id: "NEXA",
     name: "NEX PRO",
     pillLabel: "NEX PRO",
@@ -11,6 +22,17 @@ export const NEXA_MODELS: JomModel[] = [
     badge: "Advanced Expert AI",
     tagline: "คิด → วิเคราะห์ → ตรวจสอบ → ตัดสินใจ → ลงมือทำ → ปรับปรุง",
     speed: "สูงสุด",
+  },
+  {
+    id: "NEX-PRO-Z",
+    name: "NEX PRO Z",
+    pillLabel: "NEX PRO Z",
+    engine: "UNO ROUTER Engine",
+    title: "NEX PRO Z (glm-5.3-flash-think-search)",
+    subtitle: "พลังแห่งการประมวลผล Think-Search ระดับสูง ผสานความเร็วและความแม่นยำสูงสุด",
+    badge: "Extreme Capability AI",
+    tagline: "ค้นหา → คิด → วิเคราะห์ → ประมวลผลลัพธ์",
+    speed: "อัลตร้าฟาสต์",
   },
 ];
 
