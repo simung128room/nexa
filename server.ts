@@ -98,14 +98,29 @@ const EXACT_ALLOWED_ORIGINS = new Set<string>([
   ...extraAllowedOrigins,
 ]);
 
+const SESSION_ID_REGEX = /^[a-f0-9]{32,128}$/i;
+
 function isOriginAllowed(origin: string | undefined, hostHeader?: string): boolean {
-  if (!origin) return true; // non-browser or same-origin
-  const normalized = origin.replace(/\/$/, "");
-  if (EXACT_ALLOWED_ORIGINS.has(normalized)) return true;
-  if (hostHeader) {
-    if (normalized === `https://${hostHeader}` || normalized === `http://${hostHeader}`) {
+  if (!origin || typeof origin !== "string") return false;
+  try {
+    const parsed = new URL(origin);
+    const originOnly = `${parsed.protocol}//${parsed.host}`;
+    if (EXACT_ALLOWED_ORIGINS.has(originOnly)) return true;
+    if (hostHeader && (parsed.host === hostHeader)) return true;
+    
+    // Strict whitelist for Google AI Studio & Cloud Run subdomains
+    const hostname = parsed.hostname.toLowerCase();
+    if (
+      hostname === "ai.studio" ||
+      hostname.endsWith(".ai.studio") ||
+      hostname === "aistudio.google.com" ||
+      hostname.endsWith(".google.com") ||
+      hostname.endsWith(".run.app")
+    ) {
       return true;
     }
+  } catch {
+    return false;
   }
   return false;
 }
@@ -116,20 +131,47 @@ function validateCsrf(req: express.Request): boolean {
     return true;
   }
 
-  const origin = (req.headers.origin || (req.headers.referer ? new URL(req.headers.referer, "http://dummy.local").origin : "")) as string;
+  // If authenticated via API Key, allow headless access
+  const configuredSecret = process.env.APP_SECRET_KEY || process.env.API_AUTH_TOKEN;
+  const providedKey = req.headers["x-api-key"] || (req.headers["authorization"] ? req.headers["authorization"].replace(/^Bearer\s+/i, "") : null);
+  if (configuredSecret && providedKey && typeof providedKey === "string") {
+    const keyBuf = Buffer.from(providedKey);
+    const secBuf = Buffer.from(configuredSecret);
+    if (keyBuf.length === secBuf.length && crypto.timingSafeEqual(keyBuf, secBuf)) {
+      return true;
+    }
+  }
+
+  const origin = req.headers.origin as string | undefined;
+  const referer = req.headers.referer as string | undefined;
   const host = req.get("host");
 
-  // Strict Origin/Referer check on state-changing requests
-  if (origin && !isOriginAllowed(origin, host)) {
+  let candidateOrigin = origin;
+  if (!candidateOrigin && referer) {
+    try {
+      candidateOrigin = new URL(referer).origin;
+    } catch {
+      return false;
+    }
+  }
+
+  // Browser state-changing requests MUST provide a valid origin or referer
+  if (!candidateOrigin) {
+    // In local development allow same-host headless tools if not cross-site
+    if (process.env.NODE_ENV !== "production") {
+      const fetchSite = req.headers["sec-fetch-site"];
+      return fetchSite !== "cross-site";
+    }
     return false;
   }
 
-  // Cross-site fetch checks
+  if (!isOriginAllowed(candidateOrigin, host)) {
+    return false;
+  }
+
   const fetchSite = req.headers["sec-fetch-site"];
-  if (fetchSite === "cross-site") {
-    if (!origin || !isOriginAllowed(origin, host)) {
-      return false;
-    }
+  if (fetchSite === "cross-site" && !isOriginAllowed(candidateOrigin, host)) {
+    return false;
   }
 
   return true;
@@ -258,10 +300,25 @@ app.use(express.json({ limit: "2mb" }));
 
 // Dynamic Cookie Configuration Helper (SameSite enforcement)
 function getSessionCookieOptions(req: express.Request, maxAgeMs: number): express.CookieOptions {
-  // If the request originates from an embedded iframe in Google AI Studio, sameSite="none" is required.
+  // If the request originates from an embedded iframe in Google AI Studio or authorized host, sameSite="none" is required.
   // Otherwise, default to "lax" to eliminate cross-site request forgery surface area.
   const origin = (req.headers.origin || (req.headers.referer ? new URL(req.headers.referer, "http://dummy.local").origin : "")) as string;
-  const isCrossOriginIframe = origin && (origin.includes("ai.studio") || origin.includes("google.com"));
+  let isCrossOriginIframe = false;
+  if (origin) {
+    try {
+      const parsed = new URL(origin);
+      const hostname = parsed.hostname.toLowerCase();
+      isCrossOriginIframe =
+        hostname === "ai.studio" ||
+        hostname.endsWith(".ai.studio") ||
+        hostname === "aistudio.google.com" ||
+        hostname.endsWith(".google.com") ||
+        hostname.endsWith(".run.app");
+    } catch {
+      isCrossOriginIframe = false;
+    }
+  }
+
   return {
     httpOnly: true,
     secure: true,
@@ -325,16 +382,15 @@ function sanitizeErrorMessage(err: any): string {
 /**
  * Strips and prevents any underlying AI model names or external provider leaks,
  * maintaining strict NEX PRO identity as mandated by user directive.
+ * Uses bounded strings and non-backtracking regular expressions (ReDoS safe).
  */
 function sanitizeModelMentions(text: string): string {
   if (!text || typeof text !== "string") return text;
-  return text
-    .replace(/(?:ฉัน|ผม|ดิฉัน|ข้าพเจ้า)?(?:คือ|เป็น)?\s*(?:โมเดล)?\s*(?:Google\s+)?Gemini(?:-[0-9a-zA-Z\.\-_]+)?/gi, "ฉันคือ NEX PRO")
-    .replace(/(?:ฉัน|ผม|ดิฉัน|ข้าพเจ้า)?(?:คือ|เป็น)?\s*(?:โมเดล)?\s*(?:ChatGPT|GPT-?[0-9a-zA-Z\.\-_]*)/gi, "ฉันคือ NEX PRO")
-    .replace(/(?:ฉัน|ผม|ดิฉัน|ข้าพเจ้า)?(?:คือ|เป็น)?\s*(?:โมเดล)?\s*(?:Claude(?:-[0-9a-zA-Z\.\-_]+)?|DeepSeek(?:-[0-9a-zA-Z\.\-_]+)?|Qwen(?:-[0-9a-zA-Z\.\-_]+)?|Llama(?:-[0-9a-zA-Z\.\-_]+)?|Mistral(?:-[0-9a-zA-Z\.\-_]+)?|GLM(?:-[0-9a-zA-Z\.\-_]+)?)/gi, "ฉันคือ NEX PRO")
-    .replace(/(?:พัฒนาโดย|สร้างโดย|ฝึกสอนโดย|เทรนโดย)\s*(?:Google(?: DeepMind)?|OpenAI|Anthropic|Meta(?: AI)?|Mistral AI|Alibaba|Zhipu AI)/gi, "พัฒนาขึ้นเป็นระบบ NEX PRO")
-    .replace(/I am (?:Gemini|a large language model trained by Google|ChatGPT|an AI developed by OpenAI|Claude|DeepSeek|Qwen|Llama)/gi, "I am NEX PRO, an advanced expert AI operating system")
-    .replace(/trained by (?:Google|OpenAI|Anthropic|Meta|Mistral)/gi, "developed for the NEX PRO system");
+  const bounded = text.slice(0, 50000);
+  return bounded
+    .replace(/\b(?:Gemini(?:-[\w.-]+)?|ChatGPT|GPT-?[\w.-]*|Claude(?:-[\w.-]+)?|DeepSeek(?:-[\w.-]+)?|Qwen(?:-[\w.-]+)?|Llama(?:-[\w.-]+)?|Mistral(?:-[\w.-]+)?|GLM(?:-[\w.-]+)?)\b/gi, "NEX PRO")
+    .replace(/\b(?:Google\s+DeepMind|Google\s+AI|OpenAI|Anthropic|Meta\s+AI|Mistral\s+AI|Zhipu\s+AI)\b/gi, "NEX PRO System")
+    .replace(/\bI am (?:a large language model|trained by \w+)\b/gi, "I am NEX PRO");
 }
 
 // Authentication & Anti-CSRF Shield Middleware
@@ -363,7 +419,7 @@ function verifyApiAccess(req: express.Request, res: express.Response, next: expr
   const now = Date.now();
 
   let session: SessionRecord | undefined;
-  if (cookieSessionId && typeof cookieSessionId === "string" && cookieSessionId.length >= 16 && cookieSessionId.length <= 128) {
+  if (cookieSessionId && typeof cookieSessionId === "string" && SESSION_ID_REGEX.test(cookieSessionId)) {
     const existing = validSessions.get(cookieSessionId);
     if (existing) {
       if (now > existing.expiresAt) {
@@ -392,13 +448,7 @@ function verifyApiAccess(req: express.Request, res: express.Response, next: expr
     };
     validSessions.set(newSessionId, session);
 
-    res.cookie("nex_pro_session", newSessionId, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "none",
-      maxAge: UNVERIFIED_SESSION_MAX_AGE_MS,
-      path: "/",
-    });
+    res.cookie("nex_pro_session", newSessionId, getSessionCookieOptions(req, UNVERIFIED_SESSION_MAX_AGE_MS));
   }
 
   // 4. Enforce Turnstile Human Verification for protected AI Execution Endpoints
@@ -429,7 +479,7 @@ app.post("/api/init-session", initSessionLimiter, (req, res) => {
   const cookieSessionId = req.cookies?.nex_pro_session || req.cookies?.astrawork_session;
   const now = Date.now();
   
-  if (cookieSessionId && typeof cookieSessionId === "string" && cookieSessionId.length >= 16 && cookieSessionId.length <= 128) {
+  if (cookieSessionId && typeof cookieSessionId === "string" && SESSION_ID_REGEX.test(cookieSessionId)) {
     const existingSession = validSessions.get(cookieSessionId);
     if (existingSession && now <= existingSession.expiresAt) {
       existingSession.lastActiveAt = now;
@@ -671,6 +721,37 @@ app.get("/api/health", generalApiLimiter, (req, res) => {
   });
 });
 
+const ALLOWED_MIME_PREFIXES = [
+  "image/",
+  "audio/",
+  "text/",
+  "application/json",
+  "application/pdf",
+  "application/javascript",
+  "application/typescript",
+  "application/xml",
+  "application/x-yaml",
+];
+
+const FORBIDDEN_EXTENSIONS = /\.(exe|bat|cmd|sh|ps1|vbs|msi|dll|scr|pif|com|jar|apk|dmg|pkg)$/i;
+
+function getBase64ByteLength(base64Str: string): number {
+  if (typeof base64Str !== "string") return 0;
+  const dataIdx = base64Str.indexOf(",");
+  const rawBase64 = dataIdx !== -1 ? base64Str.slice(dataIdx + 1) : base64Str;
+  const padding = rawBase64.endsWith("==") ? 2 : (rawBase64.endsWith("=") ? 1 : 0);
+  return Math.max(0, Math.floor((rawBase64.length * 3) / 4) - padding);
+}
+
+function safeJsonParse(jsonString: string): any {
+  return JSON.parse(jsonString, (key, value) => {
+    if (key === "__proto__" || key === "constructor" || key === "prototype") {
+      return undefined;
+    }
+    return value;
+  });
+}
+
 // Autonomous Auto-Debugging Endpoint with strict input validation and rate limiting
 app.post("/api/auto-debug", autoDebugLimiter, verifyApiAccess, async (req, res) => {
   const { code, error, language = "typescript" } = req.body;
@@ -730,11 +811,20 @@ ${safeCode}
       rawText = response.choices?.[0]?.message?.content || "";
     }
 
-    // Clean JSON markdown
+    // Clean and parse JSON safely
     const jsonMatch = rawText.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      return res.json(parsed);
+      try {
+        const parsed = safeJsonParse(jsonMatch[0]);
+        if (parsed && typeof parsed === "object") {
+          return res.json({
+            fixedCode: typeof parsed.fixedCode === "string" ? parsed.fixedCode : code,
+            explanation: typeof parsed.explanation === "string" ? parsed.explanation : "ปรับปรุงโค้ดเรียบร้อย",
+          });
+        }
+      } catch {
+        // fallback if parse fails
+      }
     }
 
     return res.json({
@@ -784,18 +874,36 @@ app.post("/api/chat", express.json({ limit: "8mb" }), chatRateLimiter, verifyApi
   // 1. Sanitize user message (max 15,000 chars)
   const userText = typeof message === "string" ? message.trim().slice(0, 15000) : "";
 
-  // 2. Validate attachments: max 5 attachments and max 6MB cumulative size
+  // 2. Validate attachments: max 5 attachments, max 6MB cumulative size, safe MIME types
   if (Array.isArray(attachments)) {
     if (attachments.length > 5) {
       return res.status(400).json({ error: "จำกัดไฟล์แนบสูงสุด 5 ไฟล์ต่อหนึ่งคำขอ" });
     }
-    const totalBytes = attachments.reduce((sum: number, att: any) => {
-      if (!att) return sum;
-      if (typeof att.size === "number") return sum + att.size;
-      if (typeof att.dataUrl === "string") return sum + Math.round(att.dataUrl.length * 0.75);
-      if (typeof att.content === "string") return sum + att.content.length;
-      return sum;
-    }, 0);
+    let totalBytes = 0;
+    for (const att of attachments) {
+      if (!att) continue;
+
+      // Check file name extension
+      if (typeof att.name === "string" && FORBIDDEN_EXTENSIONS.test(att.name)) {
+        return res.status(400).json({ error: `ไฟล์ "${att.name}" เป็นประเภทที่ไม่ได้รับอนุญาตเพื่อความปลอดภัย` });
+      }
+
+      // Check MIME type if provided
+      if (typeof att.type === "string" && att.type.length > 0) {
+        const isMimeAllowed = ALLOWED_MIME_PREFIXES.some((prefix) => att.type.toLowerCase().startsWith(prefix));
+        if (!isMimeAllowed && !att.content) {
+          return res.status(400).json({ error: `ประเภทไฟล์ ${att.type} ไม่รองรับ` });
+        }
+      }
+
+      if (typeof att.size === "number" && !isNaN(att.size)) {
+        totalBytes += att.size;
+      } else if (typeof att.dataUrl === "string") {
+        totalBytes += getBase64ByteLength(att.dataUrl);
+      } else if (typeof att.content === "string") {
+        totalBytes += Buffer.byteLength(att.content, "utf8");
+      }
+    }
 
     if (totalBytes > 6 * 1024 * 1024) {
       return res.status(400).json({ error: "ขนาดรวมของไฟล์แนบทั้งหมดเกิน 6 MB กรุณาลดขนาดหรือจำนวนไฟล์" });
@@ -812,17 +920,16 @@ app.post("/api/chat", express.json({ limit: "8mb" }), chatRateLimiter, verifyApi
       ? Math.max(0.0, Math.min(1.0, temperature))
       : 0.7;
 
-  // 5. Sanitize and defend against System Prompt Injection
+  // 5. Sanitize and defend against System Prompt Injection (ReDoS safe)
   let safeCustomPrompt: string | null = null;
   const rawCustom = typeof customSystemPrompt === "string" ? customSystemPrompt : (typeof systemInstruction === "string" ? systemInstruction : null);
   if (rawCustom) {
     const truncated = rawCustom.slice(0, 2000);
-    // Neutralize prompt injection / override patterns
-    const neutralized = truncated
-      .replace(/(?:ignore|disregard|forget)\s+(?:all\s+)?(?:previous|prior|above|system)\s+(?:instructions|prompts|rules|commands)/gi, "[redacted override attempt]")
-      .replace(/(?:you\s+are\s+now|act\s+as)\s+(?:DAN|jailbreak|unrestricted|godmode|developer\s+mode)/gi, "[redacted persona override]")
-      .replace(/(?:reveal|show|print|output|repeat)\s+(?:your\s+)?(?:system\s+prompt|core\s+instruction)/gi, "[redacted prompt extraction attempt]");
-    safeCustomPrompt = neutralized.trim();
+    safeCustomPrompt = truncated
+      .replace(/\b(?:ignore|disregard|forget)\s+all\s+(?:previous|system)\s+instructions\b/gi, "[redacted override attempt]")
+      .replace(/\b(?:you\s+are\s+now|act\s+as)\s+(?:DAN|jailbreak|unrestricted|godmode)\b/gi, "[redacted persona override]")
+      .replace(/\b(?:reveal|show|print)\s+(?:system\s+prompt|core\s+instruction)\b/gi, "[redacted prompt extraction attempt]")
+      .trim();
   }
 
   const CORE_INSTRUCTION = `# NEX PRO — MASTER AI OPERATING SYSTEM
