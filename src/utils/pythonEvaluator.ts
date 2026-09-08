@@ -35,7 +35,7 @@ export function transpilePythonToJs(pythonCode: string): string {
       }
       return res;
     };
-    const sum = (arr) => arr.reduce((acc, curr) => acc + curr, 0);
+    const sum = (arr) => Array.isArray(arr) ? arr.reduce((acc, curr) => acc + curr, 0) : 0;
     const max = (...args) => {
       const arr = args.length === 1 && Array.isArray(args[0]) ? args[0] : args;
       return Math.max(...arr);
@@ -97,10 +97,19 @@ export function transpilePythonToJs(pythonCode: string): string {
       jsLines.push("}");
     }
 
-    // Convert f-strings: f"Hello {name}" -> `Hello ${name}`
+    // Convert f-strings safely: f"Hello {name}" -> `Hello ${name}`
+    // Validate expression within `{...}` to prevent arbitrary code injection
+    const sanitizeFStringExpr = (expr: string) => {
+      const cleanExpr = expr.trim();
+      if (/^[a-zA-Z0-9_\s+\-*/%(),.\[\]]+$/.test(cleanExpr) && !/__proto__|constructor|import|eval|Function/.test(cleanExpr)) {
+        return `\${${cleanExpr}}`;
+      }
+      return `\${String(${JSON.stringify(cleanExpr)})}`;
+    };
+
     let line = trimmed
-      .replace(/f"([^"]*)"/g, (_, content) => '`' + content.replace(/\{([^}]+)\}/g, '${$1}') + '`')
-      .replace(/f'([^']*)'/g, (_, content) => '`' + content.replace(/\{([^}]+)\}/g, '${$1}') + '`');
+      .replace(/f"([^"]*)"/g, (_, content) => '`' + content.replace(/\{([^}]+)\}/g, (__, expr) => sanitizeFStringExpr(expr)) + '`')
+      .replace(/f'([^']*)'/g, (_, content) => '`' + content.replace(/\{([^}]+)\}/g, (__, expr) => sanitizeFStringExpr(expr)) + '`');
 
     // Convert Python logical operators
     line = line
@@ -138,7 +147,6 @@ export function transpilePythonToJs(pythonCode: string): string {
     const elifMatch = line.match(/^elif\s+(.*?)\s*:/);
     if (elifMatch) {
       const cond = elifMatch[1];
-      // Close previous block before adding else if
       if (indentStack.length > 1 && !isElifOrElse) {
         indentStack.pop();
         jsLines.push("}");
@@ -210,17 +218,18 @@ export function transpilePythonToJs(pythonCode: string): string {
 
 export function executePythonInSandbox(pythonCode: string): Promise<ExecutionResult> {
   // Pre-execution security screening for system and reflection abuse
-  // Detect direct commands, string concatenation evasions, and unicode/hex escapes (e.g. 'ev' + 'al', '__im' + 'port__', 'op' + 'en', 'ev\x61l')
   const DANGEROUS_PYTHON_PATTERNS = [
     /__import__/,
     /\b(eval|exec|open)\s*\(/,
-    /^\s*(?:from|import)\s+(os|sys|subprocess|shutil|socket|pty|urllib|requests|pickle)\b/m,
+    /^\s*(?:from|import)\s+(os|sys|subprocess|shutil|socket|pty|urllib|requests|pickle|ctypes|builtins)\b/m,
     /\b__builtins__\b/,
     /\b__subclasses__\b/,
     /\b__class__\b/,
     /\b__bases__\b/,
     /\b__mro__\b/,
     /\b__dict__\b/,
+    /\b__proto__\b/,
+    /\bconstructor\b/,
     /\bgetattr\s*\(/,
     /\bsetattr\s*\(/,
     /\bdelattr\s*\(/,

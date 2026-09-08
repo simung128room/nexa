@@ -1,8 +1,9 @@
 /**
  * Client-Side Sandboxed JavaScript / TypeScript Evaluator
- * Runs exclusively in an isolated Web Worker.
+ * Runs exclusively in an isolated Web Worker with defense-in-depth isolation.
  * All network (fetch, XHR, WebSocket, EventSource, sendBeacon),
- * storage (indexedDB, localStorage), and worker creation APIs are disabled and sealed.
+ * storage (indexedDB, localStorage, sessionStorage), worker creation APIs,
+ * dynamic imports, Function constructors, and string-based timer evaluations are neutralized.
  */
 
 import { transform } from 'sucrase';
@@ -19,6 +20,37 @@ export function executeJsInBrowserSandbox(code: string): Promise<ExecutionResult
     const start = performance.now();
     const logs: string[] = [];
 
+    // Pre-screen code for forbidden syntax / bypass patterns before compilation
+    const normalizedCode = code
+      .replace(/\\x([0-9a-fA-F]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+      .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+      .replace(/['"]\s*\+\s*['"]/g, ""); // strip string concatenation evasion
+
+    const FORBIDDEN_SYNTAX = [
+      /\bimport\s*\(/i,
+      /\bimportScripts\b/i,
+      /\beval\s*\(/i,
+      /\bFunction\s*\(/i,
+      /\bAsyncFunction\b/i,
+      /\bGeneratorFunction\b/i,
+      /__proto__/i,
+      /\bprototype\b\s*\[/i,
+      /\bconstructor\s*\[/i,
+      /\bconstructor\s*\.\s*constructor\b/i,
+      /\bObject\s*\.\s*(?:defineProperty|setPrototypeOf|assign)\s*\(\s*(?:Object|Function|Array)\.prototype/i,
+    ];
+
+    for (const pattern of FORBIDDEN_SYNTAX) {
+      if (pattern.test(code) || pattern.test(normalizedCode)) {
+        return resolve({
+          success: false,
+          output: "",
+          error: "Security Policy Violation: ตรวจพบคำสั่งหรือรูปแบบโค้ดที่มีความเสี่ยงสูง (Dynamic Import, Eval, Prototype Pollution หรือ Constructor Chaining)",
+          executionTimeMs: (performance.now() - start).toFixed(2),
+        });
+      }
+    }
+
     // Transpile TypeScript to JavaScript safely using Sucrase before sending to Worker
     let compiledCode = code;
     try {
@@ -32,9 +64,11 @@ export function executeJsInBrowserSandbox(code: string): Promise<ExecutionResult
       });
     }
 
-    // Worker code that strips and freezes all dangerous APIs before user code executes
+    // Worker code with multi-layer defensive sandbox
     const workerScript = `
       (function() {
+        'use strict';
+
         // 1. Permanently remove and lock down all networking, storage, and worker-spawning capabilities
         const dangerousGlobals = [
           'fetch',
@@ -51,7 +85,8 @@ export function executeJsInBrowserSandbox(code: string): Promise<ExecutionResult
           'cookieStore',
           'Proxy',
           'Reflect',
-          'location'
+          'location',
+          'navigator'
         ];
 
         for (const key of dangerousGlobals) {
@@ -69,7 +104,25 @@ export function executeJsInBrowserSandbox(code: string): Promise<ExecutionResult
           } catch (e) {}
         }
 
-        // Neutralize eval and Object.setPrototypeOf permanently
+        // 2. Neutralize string-based code evaluation in setTimeout / setInterval
+        const nativeSetTimeout = self.setTimeout;
+        const nativeSetInterval = self.setInterval;
+
+        self.setTimeout = function(handler, timeout, ...args) {
+          if (typeof handler !== 'function') {
+            throw new Error("Security Policy Violation: String arguments in setTimeout are disabled.");
+          }
+          return nativeSetTimeout(handler, timeout, ...args);
+        };
+
+        self.setInterval = function(handler, timeout, ...args) {
+          if (typeof handler !== 'function') {
+            throw new Error("Security Policy Violation: String arguments in setInterval are disabled.");
+          }
+          return nativeSetInterval(handler, timeout, ...args);
+        };
+
+        // 3. Neutralize eval and Object.setPrototypeOf permanently
         try {
           Object.defineProperty(self, 'eval', { value: undefined, writable: false, configurable: false });
           Object.defineProperty(globalThis, 'eval', { value: undefined, writable: false, configurable: false });
@@ -80,24 +133,13 @@ export function executeJsInBrowserSandbox(code: string): Promise<ExecutionResult
           });
         } catch (e) {}
 
-        if (self.navigator) {
-          try {
-            Object.defineProperty(self.navigator, 'sendBeacon', {
-              value: undefined,
-              writable: false,
-              configurable: false,
-            });
-          } catch (e) {}
-        }
+        // 4. Capture native Function builder for runner, then permanently neutralize constructor-chaining
+        const InternalRunnerFunction = Function;
+        const blockedConstructor = function() {
+          throw new Error("Security Policy Violation: Dynamic code evaluation via Function constructor is permanently disabled in sandbox.");
+        };
 
-        // 2. Preserve native Function builder for runner, then permanently neutralize
-        // constructor-chaining escapes on Function, AsyncFunction, GeneratorFunction, and AsyncGeneratorFunction
-        const SafeFunction = Function;
         try {
-          const blockedConstructor = function() {
-            throw new Error("Security Policy Violation: Dynamic code evaluation via Function constructor is permanently disabled in sandbox.");
-          };
-
           const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
           const GeneratorFunction = Object.getPrototypeOf(function*(){}).constructor;
           const AsyncGeneratorFunction = Object.getPrototypeOf(async function*(){}).constructor;
@@ -118,6 +160,11 @@ export function executeJsInBrowserSandbox(code: string): Promise<ExecutionResult
             } catch (e) {}
           }
 
+          // Lock global Function references
+          Object.defineProperty(self, 'Function', { value: blockedConstructor, writable: false, configurable: false });
+          Object.defineProperty(globalThis, 'Function', { value: blockedConstructor, writable: false, configurable: false });
+
+          // Neutralize __proto__ access
           Object.defineProperty(Object.prototype, '__proto__', {
             get: function() { return null; },
             set: function() { return false; },
@@ -165,33 +212,18 @@ export function executeJsInBrowserSandbox(code: string): Promise<ExecutionResult
           try {
             const rawCode = String(e.data || "");
 
-            // 3. Heuristic Pre-Check (Detect dangerous keywords, string concatenation, and unicode/hex escapes)
-            // Decode common hex (\x61) and unicode (\u0061) representations to detect evasion attempts
-            let decodedCode = rawCode;
-            try {
-              decodedCode = rawCode
-                .replace(/\\x([0-9a-fA-F]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
-                .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
-            } catch (e) {}
-
-            // Detect string concatenation trying to assemble forbidden terms
-            const simplified = decodedCode.replace(/['"]\s*\+\s*['"]/g, "");
-            if (/(?:__proto__|importScripts|\beval\b|constructor|Function|prototype|indexedDB|localStorage|location|defineProperty|setPrototypeOf)/i.test(simplified)) {
-              if (/(?:__proto__|importScripts|\beval\b|constructor|Function|prototype|indexedDB|localStorage|location|defineProperty|setPrototypeOf)/i.test(simplified) && simplified !== decodedCode) {
-                throw new Error("Security Policy Violation: ตรวจพบความพยายามหลบเลี่ยง Sandbox ผ่าน String Concatenation หรือ Code Obfuscation");
-              }
+            // Additional execution pre-screening
+            if (/\\b(?:importScripts|constructor\\s*\\.\\s*constructor|__proto__)\\b/i.test(rawCode)) {
+              throw new Error("Security Policy Violation: ตรวจพบคำสั่งต้องห้ามใน Sandbox");
             }
 
-            if (/(?:__proto__|importScripts|\beval\s*\(|debugger|\bconstructor\b|getPrototypeOf|Object\.defineProperty|setPrototypeOf)/i.test(decodedCode)) {
-              throw new Error("Security Policy Violation: ตรวจพบคำสั่งหรือคีย์เวิร์ดที่มีความเสี่ยงสูง (Sandbox Security Policy)");
-            }
-
-            const runner = new SafeFunction(
+            const runner = new InternalRunnerFunction(
               'console',
+              'Function',
               '"use strict"; ' + rawCode
             );
 
-            const ret = runner(customConsole);
+            const ret = runner(customConsole, blockedConstructor);
             self.postMessage({
               success: true,
               logs,

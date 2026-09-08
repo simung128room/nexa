@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
+import DOMPurify from "dompurify";
 import { 
   Eye, 
   Code2, 
@@ -11,13 +12,10 @@ import {
   X, 
   Sparkles, 
   Edit3,
-  Play,
-  RefreshCw,
-  FileText
+  ShieldCheck
 } from "lucide-react";
 import { ArtifactItem } from "../types";
 import { zenAudio } from "../utils/zenAudio";
-import { getFileIcon } from "./SkeletonLoader";
 
 interface ArtifactPanelProps {
   artifact: ArtifactItem | null;
@@ -36,7 +34,6 @@ export const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
   isFullscreen = false,
   onToggleFullscreen,
   isStreaming = false,
-  onSendToChat,
 }) => {
   if (!isOpen || !artifact) return null;
 
@@ -84,6 +81,46 @@ export const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
   };
+
+  const isSvg = artifact.extension.toLowerCase() === "svg" || artifact.content.trim().startsWith("<svg");
+
+  const sanitizedVisualContent = isSvg
+    ? DOMPurify.sanitize(artifact.content, {
+        USE_PROFILES: { svg: true, svgFilters: true },
+        FORBID_TAGS: ["script", "iframe", "object", "embed", "link", "meta"],
+        FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "onfocus", "onblur"],
+      })
+    : DOMPurify.sanitize(artifact.content, {
+        ADD_TAGS: ["style", "div", "span", "p", "h1", "h2", "h3", "h4", "h5", "h6", "table", "thead", "tbody", "tr", "th", "td", "button", "input", "label", "form", "section", "article", "nav", "header", "footer", "main", "img", "svg", "path", "circle", "rect", "line", "polyline", "polygon"],
+        ADD_ATTR: ["class", "id", "style", "src", "alt", "href", "target", "rel", "type", "value", "placeholder", "d", "viewBox", "fill", "stroke", "stroke-width", "width", "height"],
+        FORBID_TAGS: ["script", "iframe", "object", "embed", "applet", "base", "meta", "link"],
+        FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "onfocus", "onblur", "onkeydown", "onkeyup", "onkeypress", "onsubmit", "formaction"],
+      });
+
+  const visualSrcDoc = `
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src data: https: blob:; media-src data:; connect-src 'none'; frame-ancestors 'none';">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Prompt:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', 'Prompt', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: #ffffff;
+      color: #09090b;
+      margin: 0;
+      padding: 1.25rem;
+    }
+    * { box-sizing: border-box; }
+  </style>
+</head>
+<body>
+  ${isSvg ? `<div style="display:flex;justify-content:center;align-items:center;min-height:80vh;">${sanitizedVisualContent}</div>` : `<div id="root">${sanitizedVisualContent}</div>`}
+</body>
+</html>
+  `;
 
   const lines = artifact.content.split("\n");
   const lineCount = lines.length;
@@ -286,6 +323,25 @@ export const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
                     </blockquote>
                   );
                 },
+                a({ href, children }) {
+                  if (!href) return <span>{children}</span>;
+                  try {
+                    const parsedUrl = new URL(href, window.location.href);
+                    if (["http:", "https:", "mailto:"].includes(parsedUrl.protocol)) {
+                      return (
+                        <a
+                          href={href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-indigo-600 hover:text-indigo-800 underline underline-offset-2"
+                        >
+                          {children}
+                        </a>
+                      );
+                    }
+                  } catch {}
+                  return <span className="text-zinc-600">{children}</span>;
+                },
                 code({ inline, className, children, ...props }: any) {
                   if (inline) {
                     return (
@@ -314,16 +370,12 @@ export const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
             )}
           </div>
         ) : viewMode === "preview" && isHtmlVisual ? (
-          /* HTML / SVG Live Sandbox Preview */
+          /* Sanitized HTML / SVG Live Sandbox Preview */
           <div className="w-full h-full min-h-[500px] border border-zinc-200 rounded-xl overflow-hidden bg-white shadow-xs">
             <iframe
               title="Artifact Preview"
-              srcDoc={
-                artifact.extension === "svg"
-                  ? `<div style="display:flex;justify-content:center;align-items:center;min-height:100vh;background:#ffffff;">${artifact.content}</div>`
-                  : artifact.content
-              }
-              sandbox="allow-scripts"
+              srcDoc={visualSrcDoc}
+              sandbox=""
               className="w-full h-full min-h-[500px] border-0"
             />
           </div>
