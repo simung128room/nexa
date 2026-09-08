@@ -1,6 +1,6 @@
 {
   "name": "NEXA",
   "description": "NEXA: ซูเปอร์ผู้ช่วยอัจฉริยะ ตอบคำถามและใช้งานทั่วไปรอบด้าน พร้อมความสามารถเขียนโค้ดและวิเคราะห์ตรรกะระดับสูง",
-  "requestFramePermissions": ["microphone"],
+  "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

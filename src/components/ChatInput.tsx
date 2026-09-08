@@ -17,7 +17,6 @@ import { JOM_MODELS } from "../data/presets";
 import { zenAudio } from "../utils/zenAudio";
 import { motion, AnimatePresence } from "motion/react";
 import { FileSkeleton, getFileIcon } from "./SkeletonLoader";
-import { VoiceInputButton } from "./VoiceInputButton";
 
 interface ChatInputProps {
   onSendMessage: (text: string, attachments?: FileAttachment[]) => void;
@@ -712,13 +711,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
         {/* Right Action Buttons */}
         <div className="flex items-center gap-1 shrink-0 ml-0.5">
-          <VoiceInputButton
-            onTranscript={(speechText) => {
-              setInput((prev) => (prev ? `${prev} ${speechText}` : speechText));
-              zenAudio.playSoftClick();
-            }}
-          />
-
           {isStreaming ? (
             <motion.button
               initial={{ scale: 0.9 }}
